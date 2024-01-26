@@ -1,0 +1,90 @@
+stages:
+  - build_docker
+  - deploy_docker
+
+build-docker-dev:
+  only:
+    - dev
+  stage : build_docker
+  tags:
+    - dind
+  image: docker:24.0.2
+  services:
+    - docker:24.0.2-dind
+  script:
+    - cat Dockerfile
+    - echo -n ${CI_REGISTRY_PASSWORD} | docker login ${CI_REGISTRY} -u ${CI_REGISTRY_USER} --password-stdin
+    - docker build . --no-cache=true -f Dockerfile -t aminhelloworld/medtrackr-fe:dev-${CI_COMMIT_SHORT_SHA} --build-arg VITE_BE_HOST=${BE_HOST_DEV}
+    - docker push aminhelloworld/medtrackr-fe:dev-${CI_COMMIT_SHORT_SHA}
+
+
+build-docker-prod:
+  only:
+    - main
+  stage : build_docker
+  tags:
+    - dind
+  image: docker:24.0.2
+  services:
+    - docker:24.0.2-dind
+  script:
+    - cat Dockerfile
+    - echo -n ${CI_REGISTRY_PASSWORD} | docker login ${CI_REGISTRY} -u ${CI_REGISTRY_USER} --password-stdin
+    - docker build . --no-cache=true -f Dockerfile -t aminhelloworld/medtrackr-fe:prod-${CI_COMMIT_SHORT_SHA} --build-arg VITE_BE_HOST=${BE_HOST_PROD}
+    - docker push aminhelloworld/medtrackr-fe:prod-${CI_COMMIT_SHORT_SHA}
+
+
+deploy-docker-dev:
+  only:
+    - dev
+  stage : deploy_docker
+  tags:
+    - dind
+  image: docker:24.0.2
+  services:
+    - docker:24.0.2-dind
+  script:
+    ## SETUP SSH
+    - 'command -v ssh-agent >/dev/null || ( apt-get update -y && apt-get install openssh-client -y )'
+    - eval $(ssh-agent -s)
+    - chmod 400 "$SSH_PRIVATE_KEY"
+    - ssh-add "$SSH_PRIVATE_KEY"
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - echo -e "Host *\n StrictHostKeyChecking no" > ~/.ssh/config
+
+
+    ## DEPLOY
+    - cat docker-compose.yml
+    - echo -n ${CI_REGISTRY_PASSWORD} | docker login ${CI_REGISTRY} -u ${CI_REGISTRY_USER} --password-stdin
+    - docker -H ssh://root@${HOST_DIST_DEV}  stack rm medtrackr-fe-dev
+    - sleep 10
+    - IMAGE_TAG=dev-${CI_COMMIT_SHORT_SHA} EXPOSED_PORT=9091 docker -H ssh://root@${HOST_DIST_DEV} stack deploy medtrackr-fe-dev -c docker-compose.yml --with-registry-auth
+
+
+deploy-docker-prod:
+  only:
+    - main
+  stage : deploy_docker
+  tags:
+    - dind
+  image: docker:24.0.2
+  services:
+    - docker:24.0.2-dind
+  script:
+    ## SETUP SSH
+    - 'command -v ssh-agent >/dev/null || ( apt-get update -y && apt-get install openssh-client -y )'
+    - eval $(ssh-agent -s)
+    - chmod 400 "$SSH_PRIVATE_KEY"
+    - ssh-add "$SSH_PRIVATE_KEY"
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - echo -e "Host *\n StrictHostKeyChecking no" > ~/.ssh/config
+
+
+    ## DEPLOY
+    - cat docker-compose.yml
+    - echo -n ${CI_REGISTRY_PASSWORD} | docker login ${CI_REGISTRY} -u ${CI_REGISTRY_USER} --password-stdin
+    - docker -H ssh://root@${HOST_DIST_PROD}  stack rm medtrackr-fe-prod
+    - sleep 10
+    - IMAGE_TAG=prod-${CI_COMMIT_SHORT_SHA} EXPOSED_PORT=9090 docker -H ssh://root@${HOST_DIST_PROD} stack deploy medtrackr-fe-prod -c docker-compose.yml --with-registry-auth

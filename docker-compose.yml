@@ -1,0 +1,6 @@
+version: '3.3'
+services:
+  backend:
+    image: aminhelloworld/medtrackr-fe:${IMAGE_TAG}
+    ports:
+      - ${EXPOSED_PORT}:80
